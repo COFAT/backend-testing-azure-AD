@@ -1,0 +1,1139 @@
+// ============================================================================
+// COFAT Digital Recruitment Platform - Prisma Schema
+// ============================================================================
+// Generated from: docs/database-schema.dbml
+// Date: January 27, 2026
+// Database: PostgreSQL
+// ============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum UserRole {
+  admin
+  psychologue
+  candidate
+}
+
+enum UserStatus {
+  pending_verification
+  pending_profile
+  active
+  suspended
+  inactive
+}
+
+enum Gender {
+  Male
+  Female
+}
+
+enum CandidatureStatus {
+  pending
+  assigned
+  in_progress
+  completed
+  in_review
+  evaluated
+  archived
+}
+
+enum ApplicationStatus {
+  pending
+  approved
+  rejected
+  withdrawn
+}
+
+// Legacy enum - to be removed after migration
+enum LogicalTestType {
+  domino
+  multiple_choice
+}
+
+// Legacy enum - to be removed after migration
+enum QuestionType {
+  domino
+  arrow
+  multiple_choice
+}
+
+// NEW: Test code identifies the test (D-70, D-2000, etc.)
+enum LogicalTestCode {
+  D_70
+  D_2000
+  LOGIQUE_PROPOSITIONS
+}
+
+// NEW: Question type identifies how to render/score questions
+enum LogicalQuestionType {
+  DOMINO
+  MCQ
+}
+
+// NEW: MCQ proposition choices
+enum PropositionChoice {
+  TRUE
+  FALSE
+  UNKNOWN
+}
+
+enum ScoringType {
+  FORWARD
+  REVERSE
+}
+
+enum AttemptStatus {
+  started
+  in_progress
+  completed
+  timed_out
+  abandoned
+}
+
+enum DecisionType {
+  favorable
+  defavorable
+}
+
+enum ReportLanguage {
+  fr
+  en
+}
+
+enum SiteType {
+  headquarters
+  research_development
+  production
+  regional_office
+}
+
+enum ScoreClassificationLabel {
+  tres_bien
+  bien
+  assez_bien
+  moyenne
+  assez_moyenne
+  faible
+  tres_faible
+}
+
+// ============================================================================
+// 🌐 LANGUAGE REGISTRY
+// ============================================================================
+
+model Language {
+  code      String   @id @db.VarChar(10)
+  name      String   @db.VarChar(50)
+  isActive  Boolean  @default(true) @map("is_active")
+  isDefault Boolean  @default(false) @map("is_default")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations for translations
+  logicalTestTranslations         LogicalTestTranslation[]
+  logicalQuestionTranslations     LogicalQuestionTranslation[]
+  mcqPropositionTranslations      McqPropositionTranslation[]
+  scoreClassificationTranslations ScoreClassificationTranslation[]
+  logicalTestAttempts             LogicalTestAttempt[]
+
+  @@map("languages")
+}
+
+// ============================================================================
+// 🔵 ORGANIZATION STRUCTURE
+// ============================================================================
+
+model Site {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @unique @db.VarChar(100)
+  code      String   @unique @db.VarChar(20)
+  country   String   @db.VarChar(100)
+  timezone  String   @default("UTC") @db.VarChar(50)
+  siteType  SiteType @map("site_type")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  siteDepartments SiteDepartment[]
+  users           User[]
+  jobApplications JobApplication[]
+
+  @@index([name])
+  @@index([code])
+  @@index([country])
+  @@index([isActive])
+  @@map("sites")
+}
+
+model Department {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @db.VarChar(100)
+  code        String   @db.VarChar(20)
+  description String?  @db.Text
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  siteDepartments SiteDepartment[]
+  jobApplications JobApplication[]
+
+  @@index([name])
+  @@index([code])
+  @@map("departments")
+}
+
+model SiteDepartment {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId       String   @map("site_id") @db.Uuid
+  departmentId String   @map("department_id") @db.Uuid
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  site       Site       @relation(fields: [siteId], references: [id])
+  department Department @relation(fields: [departmentId], references: [id])
+
+  @@unique([siteId, departmentId])
+  @@index([siteId])
+  @@index([departmentId])
+  @@map("site_departments")
+}
+
+// ============================================================================
+// 🟢 USER MANAGEMENT & AUTHENTICATION
+// ============================================================================
+
+model User {
+  id                String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email             String     @unique @db.VarChar(255)
+  passwordHash      String?    @map("password_hash") @db.VarChar(255)
+  firstName         String     @map("first_name") @db.VarChar(100)
+  lastName          String     @map("last_name") @db.VarChar(100)
+  gender            Gender?
+  dateOfBirth       DateTime?  @map("date_of_birth") @db.Date
+  phone             String?    @db.VarChar(20)
+  profilePictureUrl String?    @map("profile_picture_url") @db.VarChar(500)
+  role              UserRole   @default(candidate)
+  status            UserStatus @default(pending_verification)
+  siteId            String?    @map("site_id") @db.Uuid
+  isEmailVerified   Boolean    @default(false) @map("is_email_verified")
+  emailVerifiedAt   DateTime?  @map("email_verified_at") @db.Timestamptz
+  tokenVersion      Int        @default(0) @map("token_version")
+  lastLoginAt       DateTime?  @map("last_login_at") @db.Timestamptz
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  site                           Site?                        @relation(fields: [siteId], references: [id])
+  jobApplicationsAsCandidate     JobApplication[]             @relation("CandidateApplications")
+  jobApplicationsAsReviewer      JobApplication[]             @relation("ReviewerApplications")
+  candidaturesAsPsychologue      Candidature[]                @relation("PsychologueCandidatures")
+  candidaturesAsAssigner         Candidature[]                @relation("AssignerCandidatures")
+  candidaturesAsDecider          Candidature[]                @relation("DeciderCandidatures")
+  technicalInterviewsConductor   TechnicalInterview[]
+  candidatureStateTransitions    CandidatureStateTransition[]
+  logicalTestsCreated            LogicalTest[]
+  personalityTestsCreated        PersonalityTest[]
+  logicalAttemptComments         LogicalTestAttempt[]
+  personalityAttemptComments     PersonalityTestAttempt[]
+  reportsGenerated               Report[]
+  otpCodes                       OtpCode[]
+  sessions                       UserSession[]
+  notifications                  Notification[]
+  auditLogs                      AuditLog[]
+  attemptCheckpoints             AttemptCheckpoint[]
+  personalityCategoriesDeleted   PersonalityCategory[]        @relation("CategoryDeleter")
+  personalityFacetsDeleted       PersonalityFacet[]           @relation("FacetDeleter")
+  personalityQuestionsDeleted    PersonalityQuestion[]        @relation("QuestionDeleter")
+  personalityTestAttemptsDeleted PersonalityTestAttempt[]     @relation("AttemptDeleter")
+
+  @@index([email])
+  @@index([role])
+  @@index([status])
+  @@index([siteId])
+  @@index([role, status])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model OtpCode {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  code      String    @db.VarChar(10)
+  purpose   String    @db.VarChar(50)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz
+  usedAt    DateTime? @map("used_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@index([code, purpose])
+  @@index([expiresAt])
+  @@map("otp_codes")
+}
+
+model UserSession {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  refreshTokenHash String    @map("refresh_token_hash") @db.VarChar(255)
+  userAgent        String?   @map("user_agent") @db.VarChar(500)
+  ipAddress        String?   @map("ip_address") @db.VarChar(45)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshTokenHash])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
+// ============================================================================
+// 🟢 JOB APPLICATIONS
+// ============================================================================
+
+model JobApplication {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  candidateId     String            @map("candidate_id") @db.Uuid
+  siteId          String            @map("site_id") @db.Uuid
+  departmentId    String            @map("department_id") @db.Uuid
+  targetPosition  String            @map("target_position") @db.VarChar(100)
+  currentPosition String?           @map("current_position") @db.VarChar(100)
+  educationLevel  String?           @map("education_level") @db.VarChar(100)
+  availability    DateTime?         @db.Date
+  motivation      String?           @db.Text
+  cvUrl           String?           @map("cv_url") @db.VarChar(500)
+  additionalInfo  String?           @map("additional_info") @db.Text
+  status          ApplicationStatus @default(pending)
+  reviewedBy      String?           @map("reviewed_by") @db.Uuid
+  reviewedAt      DateTime?         @map("reviewed_at") @db.Timestamptz
+  rejectionReason String?           @map("rejection_reason") @db.Text
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  candidate   User         @relation("CandidateApplications", fields: [candidateId], references: [id])
+  site        Site         @relation(fields: [siteId], references: [id])
+  department  Department   @relation(fields: [departmentId], references: [id])
+  reviewer    User?        @relation("ReviewerApplications", fields: [reviewedBy], references: [id])
+  candidature Candidature?
+
+  @@index([candidateId])
+  @@index([siteId])
+  @@index([departmentId])
+  @@index([status])
+  @@index([status, createdAt])
+  @@index([candidateId, status])
+  @@index([reviewedBy])
+  @@map("job_applications")
+}
+
+// ============================================================================
+// 🟣 CANDIDATURES - CENTRAL WORKFLOW
+// ============================================================================
+
+model Candidature {
+  id                            String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  jobApplicationId              String            @unique @map("job_application_id") @db.Uuid
+  assignedPsychologueId         String?           @map("assigned_psychologue_id") @db.Uuid
+  assignedBy                    String?           @map("assigned_by") @db.Uuid
+  dpNumber                      String?           @map("dp_number") @db.VarChar(50)
+  status                        CandidatureStatus @default(pending)
+  assignedLogicalTestId         String?           @map("assigned_logical_test_id") @db.Uuid
+  assignedPersonalityTestId     String?           @map("assigned_personality_test_id") @db.Uuid
+  assignedOptionalLogicalTestId String?           @map("assigned_optional_logical_test_id") @db.Uuid
+  assignmentDate                DateTime?         @map("assignment_date") @db.Timestamptz
+  examDate                      DateTime?         @map("exam_date") @db.Timestamptz
+  decision                      DecisionType?
+  decisionDate                  DateTime?         @map("decision_date") @db.Timestamptz
+  decisionBy                    String?           @map("decision_by") @db.Uuid
+  decisionComments              String?           @map("decision_comments") @db.Text
+  previousCandidatureId         String?           @map("previous_candidature_id") @db.Uuid
+  isReevaluation                Boolean           @default(false) @map("is_reevaluation")
+  createdAt                     DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                     DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  jobApplication              JobApplication               @relation(fields: [jobApplicationId], references: [id])
+  assignedPsychologue         User?                        @relation("PsychologueCandidatures", fields: [assignedPsychologueId], references: [id])
+  assigner                    User?                        @relation("AssignerCandidatures", fields: [assignedBy], references: [id])
+  decider                     User?                        @relation("DeciderCandidatures", fields: [decisionBy], references: [id])
+  assignedLogicalTest         LogicalTest?                 @relation("AssignedLogicalTest", fields: [assignedLogicalTestId], references: [id])
+  assignedPersonalityTest     PersonalityTest?             @relation(fields: [assignedPersonalityTestId], references: [id])
+  assignedOptionalLogicalTest LogicalTest?                 @relation("AssignedOptionalLogicalTest", fields: [assignedOptionalLogicalTestId], references: [id])
+  previousCandidature         Candidature?                 @relation("Reevaluations", fields: [previousCandidatureId], references: [id])
+  reevaluations               Candidature[]                @relation("Reevaluations")
+  technicalInterview          TechnicalInterview?
+  stateTransitions            CandidatureStateTransition[]
+  logicalTestAttempts         LogicalTestAttempt[]
+  personalityTestAttempts     PersonalityTestAttempt[]
+  reports                     Report[]
+
+  @@index([jobApplicationId])
+  @@index([assignedPsychologueId])
+  @@index([status])
+  @@index([status, createdAt])
+  @@index([assignedPsychologueId, status, createdAt])
+  @@index([status, examDate])
+  @@index([examDate])
+  @@index([dpNumber])
+  @@map("candidatures")
+}
+
+model TechnicalInterview {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  candidatureId   String       @unique @map("candidature_id") @db.Uuid
+  interviewDate   DateTime     @map("interview_date") @db.Timestamptz
+  interviewerName String       @map("interviewer_name") @db.VarChar(200)
+  decision        DecisionType
+  notes           String?      @db.Text
+  conductedBy     String?      @map("conducted_by") @db.Uuid
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  candidature Candidature @relation(fields: [candidatureId], references: [id], onDelete: Cascade)
+  conductor   User?       @relation(fields: [conductedBy], references: [id])
+
+  @@index([candidatureId])
+  @@index([interviewDate])
+  @@index([decision])
+  @@map("technical_interviews")
+}
+
+model CandidatureStateTransition {
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  candidatureId  String             @map("candidature_id") @db.Uuid
+  fromStatus     CandidatureStatus? @map("from_status")
+  toStatus       CandidatureStatus  @map("to_status")
+  transitionedBy String             @map("transitioned_by") @db.Uuid
+  transitionedAt DateTime           @default(now()) @map("transitioned_at") @db.Timestamptz
+  reason         String?            @db.Text
+
+  // Relations
+  candidature Candidature @relation(fields: [candidatureId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [transitionedBy], references: [id])
+
+  @@index([candidatureId, transitionedAt])
+  @@index([transitionedBy])
+  @@index([toStatus])
+  @@map("candidature_state_transitions")
+}
+
+// ============================================================================
+// 🟠 LOGICAL TESTS
+// ============================================================================
+
+model LogicalTest {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code              LogicalTestCode // D_70, D_2000, LOGIQUE_PROPOSITIONS
+  questionType      LogicalQuestionType @map("question_type") // DOMINO, MCQ
+  durationMinutes   Int                 @map("duration_minutes")
+  totalQuestions    Int                 @default(0) @map("total_questions")
+  tutorialQuestions Int                 @default(0) @map("tutorial_questions")
+  isTutorial        Boolean             @default(false) @map("is_tutorial")
+  tutorialTestId    String?             @map("tutorial_test_id") @db.Uuid
+  isActive          Boolean             @default(true) @map("is_active")
+  isOptional        Boolean             @default(false) @map("is_optional")
+  version           Int                 @default(1)
+  metadata          Json                @default("{}") // Flexible admin-added properties
+  analytics         Json                @default("{\"attempts\": 0, \"avgScore\": 0, \"completionRate\": 0}")
+  createdBy         String?             @map("created_by") @db.Uuid
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Legacy fields - to be removed after migration
+  name         String?          @db.VarChar(100)
+  description  Json?
+  instructions Json?
+  type         LogicalTestType?
+
+  // Relations
+  translations                 LogicalTestTranslation[]
+  tutorialTest                 LogicalTest?             @relation("TutorialRelation", fields: [tutorialTestId], references: [id])
+  testsWithThisTutorial        LogicalTest[]            @relation("TutorialRelation")
+  creator                      User?                    @relation(fields: [createdBy], references: [id])
+  questions                    LogicalQuestion[]
+  scoreClassifications         ScoreClassification[]
+  attempts                     LogicalTestAttempt[]
+  candidaturesAssigned         Candidature[]            @relation("AssignedLogicalTest")
+  candidaturesOptionalAssigned Candidature[]            @relation("AssignedOptionalLogicalTest")
+
+  @@unique([code, isTutorial]) // Each code has one main test and optionally one tutorial
+  @@index([code])
+  @@index([questionType])
+  @@index([isActive])
+  @@index([isTutorial])
+  @@map("logical_tests")
+}
+
+model ScoreClassification {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  testId       String   @map("test_id") @db.Uuid
+  displayOrder Int      @map("display_order")
+  minScore     Int      @map("min_score")
+  maxScore     Int      @map("max_score")
+  colorCode    String?  @map("color_code") @db.VarChar(20) // For UI display (e.g., "#28a745")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  test         LogicalTest                      @relation(fields: [testId], references: [id], onDelete: Cascade)
+  translations ScoreClassificationTranslation[]
+
+  @@unique([testId, displayOrder])
+  @@index([testId])
+  @@map("score_classifications")
+}
+
+// ============================================================================
+// 🟠 LOGICAL TESTS - TRANSLATION TABLES
+// ============================================================================
+
+model LogicalTestTranslation {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  testId       String   @map("test_id") @db.Uuid
+  languageCode String   @map("language_code") @db.VarChar(10)
+  name         String   @db.VarChar(200)
+  description  String?  @db.Text
+  instructions String   @db.Text
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  test     LogicalTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+  language Language    @relation(fields: [languageCode], references: [code])
+
+  @@unique([testId, languageCode])
+  @@index([testId])
+  @@index([languageCode])
+  @@map("logical_test_translations")
+}
+
+model ScoreClassificationTranslation {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  classificationId String   @map("classification_id") @db.Uuid
+  languageCode     String   @map("language_code") @db.VarChar(10)
+  label            String   @db.VarChar(100)
+  description      String?  @db.Text
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  classification ScoreClassification @relation(fields: [classificationId], references: [id], onDelete: Cascade)
+  language       Language            @relation(fields: [languageCode], references: [code])
+
+  @@unique([classificationId, languageCode])
+  @@index([classificationId])
+  @@map("score_classification_translations")
+}
+
+model LogicalQuestionTranslation {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  questionId   String   @map("question_id") @db.Uuid
+  languageCode String   @map("language_code") @db.VarChar(10)
+  title        String?  @db.VarChar(200)
+  instruction  String   @db.Text
+  hints        String[] @default([]) // Array of hint texts
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  question LogicalQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  language Language        @relation(fields: [languageCode], references: [code])
+
+  @@unique([questionId, languageCode])
+  @@index([questionId])
+  @@map("logical_question_translations")
+}
+
+model McqPropositionTranslation {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  propositionId String   @map("proposition_id") @db.Uuid
+  languageCode  String   @map("language_code") @db.VarChar(10)
+  text          String   @db.Text
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  proposition McqProposition @relation(fields: [propositionId], references: [id], onDelete: Cascade)
+  language    Language       @relation(fields: [languageCode], references: [code])
+
+  @@unique([propositionId, languageCode])
+  @@index([propositionId])
+  @@map("mcq_proposition_translations")
+}
+
+// ============================================================================
+// 🟠 LOGICAL TESTS - QUESTIONS
+// ============================================================================
+
+model LogicalQuestion {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  testId         String              @map("test_id") @db.Uuid
+  questionNumber Int                 @map("question_number")
+  questionType   LogicalQuestionType @map("question_type") // DOMINO or MCQ
+  difficulty     Int                 @default(1) // 1-5 scale
+  isTutorial     Boolean             @default(false) @map("is_tutorial")
+  isActive       Boolean             @default(true) @map("is_active")
+  metadata       Json                @default("{}") // Flexible properties
+  analytics      Json                @default("{\"correctRate\": 0, \"avgTimeSpent\": 0}")
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Legacy fields - to be removed after migration (now in translation tables)
+  title       Json?
+  instruction Json?
+  hints       Json? @default("[]")
+
+  // Relations
+  test         LogicalTest                  @relation(fields: [testId], references: [id], onDelete: Cascade)
+  translations LogicalQuestionTranslation[]
+  responses    LogicalQuestionResponse[]
+
+  // Type-specific data (only one will be populated based on questionType)
+  dominoQuestion DominoQuestion?
+  mcqQuestion    McqQuestion?
+
+  @@unique([testId, questionNumber])
+  @@index([testId])
+  @@index([questionType])
+  @@index([isTutorial])
+  @@map("logical_questions")
+}
+
+model DominoQuestion {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  questionId String @unique @map("question_id") @db.Uuid
+
+  // The domino tiles data
+  dominoTiles Json @map("domino_tiles") // Array of {id, topValue, bottomValue, x, y, isEditable, isHidden}
+
+  // The answer (position or tile that needs to be filled)
+  missingTileId      Int @map("missing_tile_id") // Which tile is the missing one
+  correctTopValue    Int @map("correct_top_value") // 0-6
+  correctBottomValue Int @map("correct_bottom_value") // 0-6
+
+  // Optional: arrows for visual guides (D-2000 style)
+  arrows Json? // Array of {fromId, toId, direction}
+
+  // Legacy fields - to be removed after migration
+  dominoLayout  Json? @map("domino_layout")
+  correctAnswer Json? @map("correct_answer")
+
+  // Relations
+  question LogicalQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@map("domino_questions")
+}
+
+model McqQuestion {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  questionId String @unique @map("question_id") @db.Uuid
+
+  // MCQ configuration
+  stemKind String @default("PROPOSITIONS_GROUP") @map("stem_kind") @db.VarChar(50)
+  // "PROPOSITIONS_GROUP" = evaluate multiple propositions as T/F/Unknown
+  // "SINGLE_CHOICE" = pick one answer (future expansion)
+  // "MULTIPLE_CHOICE" = pick multiple answers (future expansion)
+
+  // Legacy field - to be removed after migration
+  propositionsJson Json? @map("propositions")
+
+  // Relations
+  question     LogicalQuestion  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  propositions McqProposition[]
+
+  @@map("mcq_questions")
+}
+
+model McqProposition {
+  id            String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  mcqQuestionId String            @map("mcq_question_id") @db.Uuid
+  displayOrder  Int               @map("display_order")
+  correctChoice PropositionChoice @map("correct_choice") // TRUE, FALSE, UNKNOWN
+
+  // Relations
+  mcqQuestion  McqQuestion                 @relation(fields: [mcqQuestionId], references: [id], onDelete: Cascade)
+  translations McqPropositionTranslation[]
+  responses    McqPropositionResponse[]
+
+  @@unique([mcqQuestionId, displayOrder])
+  @@index([mcqQuestionId])
+  @@map("mcq_propositions")
+}
+
+model LogicalTestAttempt {
+  id                String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  candidatureId     String  @map("candidature_id") @db.Uuid
+  testId            String  @map("test_id") @db.Uuid
+  languageCode      String  @default("fr") @map("language_code") @db.VarChar(10) // Language used for this attempt
+  tutorialAttemptId String? @map("tutorial_attempt_id") @db.Uuid
+
+  // Timing (with pauseable timer support)
+  startedAt     DateTime  @default(now()) @map("started_at") @db.Timestamptz
+  submittedAt   DateTime? @map("submitted_at") @db.Timestamptz
+  expiresAt     DateTime? @map("expires_at") @db.Timestamptz // startedAt + durationMinutes (adjusted for pauses)
+  timeSpentMs   BigInt?   @map("time_spent_ms")
+  pausedAt      DateTime? @map("paused_at") @db.Timestamptz // When test was paused (disconnect)
+  totalPausedMs BigInt    @default(0) @map("total_paused_ms") // Total time spent paused
+
+  // Status & Progress
+  status                AttemptStatus @default(in_progress)
+  currentQuestionNumber Int           @default(1) @map("current_question_number")
+  answeredCount         Int           @default(0) @map("answered_count")
+  skippedCount          Int           @default(0) @map("skipped_count")
+  flaggedCount          Int           @default(0) @map("flagged_count")
+  lastActivityAt        DateTime      @default(now()) @map("last_activity_at") @db.Timestamptz
+
+  // Results (populated after submission)
+  score            Int?
+  maxScore         Int?     @map("max_score")
+  percentageScore  Decimal? @map("percentage_score") @db.Decimal(5, 2)
+  classificationId String?  @map("classification_id") @db.Uuid
+
+  // Analytics (aggregated after submission)
+  metrics            Json  @default("{}")
+  propositionMetrics Json? @map("proposition_metrics")
+ 
+  psychologistComment   String?   @map("psychologist_comment") @db.Text
+  psychologistCommentBy String?   @map("psychologist_comment_by") @db.Uuid
+  psychologistCommentAt DateTime? @map("psychologist_comment_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  candidature              Candidature               @relation(fields: [candidatureId], references: [id], onDelete: Cascade)
+  test                     LogicalTest               @relation(fields: [testId], references: [id])
+  language                 Language                  @relation(fields: [languageCode], references: [code])
+  tutorialAttempt          LogicalTestAttempt?       @relation("TutorialAttempt", fields: [tutorialAttemptId], references: [id])
+  attemptsWithThisTutorial LogicalTestAttempt[]      @relation("TutorialAttempt")
+  psychologistCommenter    User?                     @relation(fields: [psychologistCommentBy], references: [id])
+  responses                LogicalQuestionResponse[]
+
+  @@unique([candidatureId, testId, status]) // Prevent multiple in-progress attempts
+  @@index([candidatureId])
+  @@index([testId])
+  @@index([status])
+  @@index([submittedAt])
+  @@index([candidatureId, testId, status])
+  @@index([languageCode])
+  @@map("logical_test_attempts")
+}
+
+model LogicalQuestionResponse {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  attemptId  String @map("attempt_id") @db.Uuid
+  questionId String @map("question_id") @db.Uuid
+
+  // Answer status
+  isCorrect     Boolean? @map("is_correct") // null = not yet evaluated
+  isHalfCorrect Boolean  @default(false) @map("is_half_correct") // For domino: one value correct
+  isReversed    Boolean  @default(false) @map("is_reversed") // For domino: values swapped
+
+  // Interaction tracking
+  timeSpentMs   Int     @default(0) @map("time_spent_ms")
+  visitCount    Int     @default(1) @map("visit_count")
+  answerChanges Int     @default(0) @map("answer_changes")
+  isFlagged     Boolean @default(false) @map("is_flagged")
+  isSkipped     Boolean @default(false) @map("is_skipped")
+  isLocked      Boolean @default(false) @map("is_locked")
+  events        Json    @default("[]")
+
+  // Timestamps
+  firstVisitAt DateTime? @map("first_visit_at") @db.Timestamptz
+  lastVisitAt  DateTime? @map("last_visit_at") @db.Timestamptz
+  answeredAt   DateTime? @map("answered_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+
+  // Relations
+  attempt  LogicalTestAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question LogicalQuestion    @relation(fields: [questionId], references: [id])
+
+  // Type-specific response (only one populated based on question type)
+  dominoResponse DominoResponse?
+  mcqResponse    McqResponse?
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@index([questionId])
+  @@map("logical_question_responses")
+}
+
+// Type-specific response tables
+model DominoResponse {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  responseId String @unique @map("response_id") @db.Uuid
+
+  answerTopValue    Int? @map("answer_top_value") // 0-6 or null if not answered
+  answerBottomValue Int? @map("answer_bottom_value") // 0-6 or null if not answered
+
+  // Relations
+  response LogicalQuestionResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+
+  @@map("domino_responses")
+}
+
+model McqResponse {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  responseId String @unique @map("response_id") @db.Uuid
+
+  // Relations
+  response             LogicalQuestionResponse  @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  propositionResponses McqPropositionResponse[]
+
+  @@map("mcq_responses")
+}
+
+model McqPropositionResponse {
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  mcqResponseId  String             @map("mcq_response_id") @db.Uuid
+  propositionId  String             @map("proposition_id") @db.Uuid
+  selectedChoice PropositionChoice? @map("selected_choice") // null if not answered
+
+  // Relations
+  mcqResponse McqResponse    @relation(fields: [mcqResponseId], references: [id], onDelete: Cascade)
+  proposition McqProposition @relation(fields: [propositionId], references: [id])
+
+  @@unique([mcqResponseId, propositionId])
+  @@index([mcqResponseId])
+  @@map("mcq_proposition_responses")
+}
+
+// ============================================================================
+// 🔴 PERSONALITY TESTS (NEO PI-R)
+// ============================================================================
+
+model PersonalityTest {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String   @db.VarChar(100)
+  description     String?  @db.Text
+  instructions    String?  @db.Text
+  durationMinutes Int      @default(0) @map("duration_minutes")
+  totalQuestions  Int      @default(240) @map("total_questions")
+  isActive        Boolean  @default(true) @map("is_active")
+  version         Int      @default(1)
+  analytics       Json     @default("{\"attempts\": 0, \"avgCompletionTime\": 0}")
+  createdBy       String?  @map("created_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  creator              User?                    @relation(fields: [createdBy], references: [id])
+  questions            PersonalityQuestion[]
+  attempts             PersonalityTestAttempt[]
+  candidaturesAssigned Candidature[]
+
+  @@index([name])
+  @@index([isActive])
+  @@map("personality_tests")
+}
+
+model PersonalityCategory {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String    @unique @db.VarChar(100)
+  code          String    @unique @db.VarChar(5)
+  displayOrder  Int       @map("display_order")
+  description   Json?
+  scoringRanges Json      @map("scoring_ranges")
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz
+  deletedBy     String?   @map("deleted_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  deleter        User?                      @relation("CategoryDeleter", fields: [deletedBy], references: [id])
+  facets         PersonalityFacet[]
+  categoryScores PersonalityCategoryScore[]
+
+  @@index([name])
+  @@index([code])
+  @@index([displayOrder])
+  @@map("personality_categories")
+}
+
+model PersonalityFacet {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  categoryId    String    @map("category_id") @db.Uuid
+  name          String    @db.VarChar(100)
+  displayOrder  Int       @map("display_order")
+  description   Json?
+  scoringRanges Json      @map("scoring_ranges")
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz
+  deletedBy     String?   @map("deleted_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  category    PersonalityCategory     @relation(fields: [categoryId], references: [id])
+  deleter     User?                   @relation("FacetDeleter", fields: [deletedBy], references: [id])
+  questions   PersonalityQuestion[]
+  facetScores PersonalityFacetScore[]
+
+  @@unique([categoryId, displayOrder])
+  @@index([categoryId])
+  @@map("personality_facets")
+}
+
+model PersonalityQuestion {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  facetId      String      @map("facet_id") @db.Uuid
+  testId       String?     @map("test_id") @db.Uuid
+  displayOrder Int         @map("display_order")
+  globalOrder  Int         @map("global_order")
+  content      Json
+  text         String?     @db.VarChar(500) // Deprecated
+  scoringType  ScoringType @default(FORWARD) @map("scoring_type")
+  deletedAt    DateTime?   @map("deleted_at") @db.Timestamptz
+  deletedBy    String?     @map("deleted_by") @db.Uuid
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  facet        PersonalityFacet         @relation(fields: [facetId], references: [id])
+  test         PersonalityTest?         @relation(fields: [testId], references: [id])
+  deleter      User?                    @relation("QuestionDeleter", fields: [deletedBy], references: [id])
+  answers      PersonalityAnswer[]
+  draftAnswers PersonalityDraftAnswer[]
+
+  @@unique([facetId, displayOrder])
+  @@index([facetId])
+  @@index([testId])
+  @@index([globalOrder])
+  @@map("personality_questions")
+}
+
+model PersonalityTestAttempt {
+  id                    String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  candidatureId         String         @map("candidature_id") @db.Uuid
+  testId                String         @map("test_id") @db.Uuid
+  preferredLanguage     ReportLanguage @default(fr) @map("preferred_language")
+  startedAt             DateTime       @default(now()) @map("started_at") @db.Timestamptz
+  submittedAt           DateTime?      @map("submitted_at") @db.Timestamptz
+  timeElapsedSeconds    Int            @default(0) @map("time_elapsed_seconds")
+  status                AttemptStatus  @default(started)
+  completionPercentage  Decimal        @default(0) @map("completion_percentage") @db.Decimal(5, 2)
+  lastActivityAt        DateTime       @default(now()) @map("last_activity_at") @db.Timestamptz
+  lastSavedAt           DateTime?      @map("last_saved_at") @db.Timestamptz
+  expiresAt             DateTime?      @map("expires_at") @db.Timestamptz
+  psychologistComment   String?        @map("psychologist_comment") @db.Text
+  psychologistCommentBy String?        @map("psychologist_comment_by") @db.Uuid
+  psychologistCommentAt DateTime?      @map("psychologist_comment_at") @db.Timestamptz
+  userAgent             String?        @map("user_agent") @db.VarChar(500)
+  ipAddress             String?        @map("ip_address") @db.VarChar(45)
+  deletedAt             DateTime?      @map("deleted_at") @db.Timestamptz
+  deletedBy             String?        @map("deleted_by") @db.Uuid
+  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  candidature           Candidature                    @relation(fields: [candidatureId], references: [id], onDelete: Cascade)
+  test                  PersonalityTest                @relation(fields: [testId], references: [id])
+  psychologistCommenter User?                          @relation(fields: [psychologistCommentBy], references: [id])
+  deleter               User?                          @relation("AttemptDeleter", fields: [deletedBy], references: [id])
+  answers               PersonalityAnswer[]
+  draftAnswers          PersonalityDraftAnswer[]
+  facetScores           PersonalityFacetScore[]
+  categoryScores        PersonalityCategoryScore[]
+  validationResponses   PersonalityValidationResponse?
+
+  @@index([candidatureId])
+  @@index([testId])
+  @@index([status])
+  @@index([submittedAt])
+  @@index([candidatureId, testId, status])
+  @@map("personality_test_attempts")
+}
+
+model PersonalityAnswer {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  attemptId     String   @map("attempt_id") @db.Uuid
+  questionId    String   @map("question_id") @db.Uuid
+  selectedValue Int      @map("selected_value")
+  answeredAt    DateTime @default(now()) @map("answered_at") @db.Timestamptz
+
+  // Relations
+  attempt  PersonalityTestAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question PersonalityQuestion    @relation(fields: [questionId], references: [id])
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@map("personality_answers")
+}
+
+model PersonalityDraftAnswer {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  attemptId     String   @map("attempt_id") @db.Uuid
+  questionId    String   @map("question_id") @db.Uuid
+  selectedValue Int      @map("selected_value")
+  savedAt       DateTime @default(now()) @map("saved_at") @db.Timestamptz
+
+  // Relations
+  attempt  PersonalityTestAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question PersonalityQuestion    @relation(fields: [questionId], references: [id])
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@map("personality_draft_answers")
+}
+
+model PersonalityFacetScore {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  attemptId        String   @map("attempt_id") @db.Uuid
+  facetId          String   @map("facet_id") @db.Uuid
+  rawScore         Int      @map("raw_score")
+  maxPossibleScore Int      @default(32) @map("max_possible_score")
+  percentile       Decimal? @db.Decimal(5, 2)
+
+  // Relations
+  attempt PersonalityTestAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  facet   PersonalityFacet       @relation(fields: [facetId], references: [id])
+
+  @@unique([attemptId, facetId])
+  @@index([attemptId])
+  @@map("personality_facet_scores")
+}
+
+model PersonalityCategoryScore {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  attemptId        String   @map("attempt_id") @db.Uuid
+  categoryId       String   @map("category_id") @db.Uuid
+  rawScore         Int      @map("raw_score")
+  maxPossibleScore Int      @default(192) @map("max_possible_score")
+  percentile       Decimal? @db.Decimal(5, 2)
+
+  // Relations
+  attempt  PersonalityTestAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  category PersonalityCategory    @relation(fields: [categoryId], references: [id])
+
+  @@unique([attemptId, categoryId])
+  @@index([attemptId])
+  @@map("personality_category_scores")
+}
+
+model PersonalityValidationResponse {
+  id                       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  attemptId                String   @unique @map("attempt_id") @db.Uuid
+  honestyResponse          Int?     @map("honesty_response")
+  answeredAll              Boolean? @map("answered_all")
+  responsesCorrectlyPlaced Boolean? @map("responses_correctly_placed")
+  answeredAt               DateTime @default(now()) @map("answered_at") @db.Timestamptz
+
+  // Relations
+  attempt PersonalityTestAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@map("personality_validation_responses")
+}
+
+// ============================================================================
+// 🟡 REPORTS & ANALYTICS
+// ============================================================================
+
+model Report {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  candidatureId  String         @map("candidature_id") @db.Uuid
+  language       ReportLanguage @default(fr)
+  content        Json
+  pdfUrl         String?        @map("pdf_url") @db.VarChar(500)
+  pdfGeneratedAt DateTime?      @map("pdf_generated_at") @db.Timestamptz
+  generatedBy    String         @map("generated_by") @db.Uuid
+  generatedAt    DateTime       @default(now()) @map("generated_at") @db.Timestamptz
+  version        Int            @default(1)
+  status         String         @default("generated") @db.VarChar(20)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  candidature Candidature @relation(fields: [candidatureId], references: [id], onDelete: Cascade)
+  generator   User        @relation(fields: [generatedBy], references: [id])
+
+  @@index([candidatureId])
+  @@index([generatedAt])
+  @@map("reports")
+}
+
+// ============================================================================
+// ⚫ SYSTEM, AUDIT & NOTIFICATIONS
+// ============================================================================
+
+model AuditLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entityType  String   @map("entity_type") @db.VarChar(50)
+  entityId    String   @map("entity_id") @db.Uuid
+  action      String   @db.VarChar(50)
+  changes     Json?
+  performedBy String?  @map("performed_by") @db.Uuid
+  ipAddress   String?  @map("ip_address") @db.VarChar(45)
+  userAgent   String?  @map("user_agent") @db.VarChar(500)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  performer User? @relation(fields: [performedBy], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([performedBy])
+  @@index([createdAt])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  type         String    @db.VarChar(50)
+  title        String    @db.VarChar(200)
+  message      String    @db.Text
+  channel      String    @default("email") @db.VarChar(20)
+  sentAt       DateTime? @map("sent_at") @db.Timestamptz
+  deliveredAt  DateTime? @map("delivered_at") @db.Timestamptz
+  readAt       DateTime? @map("read_at") @db.Timestamptz
+  status       String    @default("pending") @db.VarChar(20)
+  errorMessage String?   @map("error_message") @db.Text
+  metadata     Json?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model AttemptCheckpoint {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  attemptId      String   @unique @map("attempt_id") @db.Uuid
+  attemptType    String   @map("attempt_type") @db.VarChar(20)
+  candidateId    String   @map("candidate_id") @db.Uuid
+  testId         String   @map("test_id") @db.Uuid
+  checkpointData Json     @map("checkpoint_data")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  candidate User @relation(fields: [candidateId], references: [id])
+
+  @@index([attemptId])
+  @@index([candidateId])
+  @@index([updatedAt])
+  @@map("attempt_checkpoints")
+}

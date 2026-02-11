@@ -1,0 +1,70 @@
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: cofat-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: cofat_db
+    ports:
+      - '5434:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: cofat-redis
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # NestJS Backend Monolith
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: cofat-backend
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/cofat_db?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: cofat-dev-access-secret
+      JWT_REFRESH_SECRET: cofat-dev-refresh-secret
+      CORS_ORIGIN: http://localhost:4200
+      FRONTEND_URL: http://localhost:4200
+      # Email (Gmail SMTP)
+      EMAIL_HOST: smtp.gmail.com
+      EMAIL_PORT: 587
+      EMAIL_SECURE: 'false'
+      EMAIL_USER: jabou.medamine@gmail.com
+      EMAIL_PASS: jdmyehfwvjxdpxdd
+      EMAIL_FROM: recruitment@cofat.com
+    ports:
+      - '3000:3000'
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: npm run start:dev
+
+volumes:
+  postgres_data:
+  redis_data:

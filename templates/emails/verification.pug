@@ -1,0 +1,16 @@
+extends base.pug
+
+block content
+  h3 Verify Your Email Address
+  
+  p Hello #{firstName},
+  
+  p Welcome to COFAT! Please use the verification code below to complete your registration:
+  
+  .otp-code
+    span= otp
+  
+  .info-box
+    p This code will expire in #{expiresIn} minutes. Do not share this code with anyone.
+  
+  p If you didn't create an account with COFAT, please ignore this email.

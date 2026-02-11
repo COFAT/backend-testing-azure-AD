@@ -1,0 +1,29 @@
+extends base.pug
+
+block content
+  h3 Your Account Credentials
+  
+  p Hello #{firstName},
+  
+  p An account has been created for you on the COFAT Digital Recruitment Platform.
+  
+  p Here are your login credentials:
+  
+  div(style="background-color: #f1f5f9; padding: 15px; border-radius: 6px; margin: 20px 0;")
+    p(style="margin: 0 0 10px 0;")
+      strong Email: 
+      | #{email}
+    p(style="margin: 0;")
+      strong Temporary Password: 
+      | #{temporaryPassword}
+  
+  .info-box
+    p For security reasons, you will be required to change your password upon first login.
+  
+  if ctaUrl
+    .cta-button
+      a(href=ctaUrl) Login to Your Account
+  
+  p Best regards,
+  br
+  | The COFAT Team
